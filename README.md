@@ -24,3 +24,5 @@
 В левом меню появится пункт TorrServer: сетка постеров, поле добавления magnet/.torrent,
 «Воспроизвести» (поток через Jellyfin → TorrServer прямо в браузере) и «В библиотеке»
 (карточка в Jellyfin с метаданными, транскодингом и воспроизведением на любых клиентах).
+
+> CI builds `Jellyfin.Plugin.TorrServer.dll` with GitHub Actions.
