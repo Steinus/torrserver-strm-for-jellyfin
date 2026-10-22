@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TorrServer</title>
+</head>
+<body>
+<div id="TorrServerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="TorrServerConfigForm">
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="tsUrl" label="Адрес TorrServer (например http://192.168.1.50:8090)" />
+                    <div class="fieldDescription">Должен быть доступен с сервера, где запущен Jellyfin.</div>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="tsUser" label="Логин (если включена авторизация)" />
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="password" id="tsPass" label="Пароль" />
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="tsPath" label="Папка для .strm файлов (пусто = по умолчанию)" />
+                    <div class="fieldDescription">Внутри будут папки Movies и Shows — добавьте их как библиотеки «Фильмы» и «Сериалы».</div>
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="number" id="tsInterval" min="0" label="Синхронизация, минут (0 = выключено)" />
+                </div>
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="tsAutoScan" />
+                    <span>Сканировать библиотеки после изменений</span>
+                </label>
+                <br />
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Сохранить</span></button>
+                    <button is="emby-button" type="button" id="tsTest" class="raised block"><span>Проверить подключение</span></button>
+                    <button is="emby-button" type="button" id="tsSync" class="raised block"><span>Синхронизировать сейчас</span></button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'b7a1c7d2-4f55-4e0b-9a52-6c1d3e8f2a10';
+            var page = document.querySelector('#TorrServerConfigPage');
+
+            function notify(m) { try { Dashboard.alert({ message: m }); } catch (e) { alert(m); } }
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (c) {
+                    page.querySelector('#tsUrl').value = c.TorrServerUrl || '';
+                    page.querySelector('#tsUser').value = c.Username || '';
+                    page.querySelector('#tsPass').value = c.Password || '';
+                    page.querySelector('#tsPath').value = c.LibraryPath || '';
+                    page.querySelector('#tsInterval').value = c.SyncIntervalMinutes;
+                    page.querySelector('#tsAutoScan').checked = c.AutoScanLibrary;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            page.querySelector('#TorrServerConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (c) {
+                    c.TorrServerUrl = page.querySelector('#tsUrl').value.trim();
+                    c.Username = page.querySelector('#tsUser').value;
+                    c.Password = page.querySelector('#tsPass').value;
+                    c.LibraryPath = page.querySelector('#tsPath').value.trim();
+                    c.SyncIntervalMinutes = parseInt(page.querySelector('#tsInterval').value || '0', 10);
+                    c.AutoScanLibrary = page.querySelector('#tsAutoScan').checked;
+                    ApiClient.updatePluginConfiguration(pluginId, c).then(Dashboard.processPluginConfigurationUpdateResult);
+                });
+            });
+
+            page.querySelector('#tsTest').addEventListener('click', function () {
+                // сначала сохраняем, потом проверяем
+                ApiClient.getPluginConfiguration(pluginId).then(function (c) {
+                    c.TorrServerUrl = page.querySelector('#tsUrl').value.trim();
+                    c.Username = page.querySelector('#tsUser').value;
+                    c.Password = page.querySelector('#tsPass').value;
+                    return ApiClient.updatePluginConfiguration(pluginId, c);
+                }).then(function () {
+                    return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('TorrServer/Test'), dataType: 'json' });
+                }).then(function (r) {
+                    notify('Подключено. Версия TorrServer: ' + r.version);
+                }, function () {
+                    notify('Не удалось подключиться к TorrServer. Проверьте адрес и логин/пароль.');
+                });
+            });
+
+            page.querySelector('#tsSync').addEventListener('click', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('TorrServer/Sync') }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                    notify('Синхронизация завершена');
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                    notify('Ошибка синхронизации');
+                });
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
