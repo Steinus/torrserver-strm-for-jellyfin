@@ -1,0 +1,30 @@
+name: Build Jellyfin plugin
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.TorrServer.csproj
+
+      - name: Build
+        run: dotnet publish Jellyfin.Plugin.TorrServer.csproj -c Release -o out --no-restore
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jellyfin.Plugin.TorrServer
+          path: out/Jellyfin.Plugin.TorrServer.dll
