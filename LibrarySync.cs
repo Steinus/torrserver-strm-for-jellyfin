@@ -164,13 +164,21 @@ public class LibrarySync
         var files = t.Files;
         if (files == null || files.Count == 0)
         {
-            files = (await _client.GetAsync(t.Hash!, ct).ConfigureAwait(false))?.Files;
+            _log.LogInformation("TorrServer: ожидаю метаданные файлов для {Name} ({Hash})", t.DisplayName, t.Hash);
+            files = (await _client.GetWithFilesAsync(t.Hash!, ct).ConfigureAwait(false))?.Files;
         }
 
-        var videos = files?.Where(f => IsVideo(f.Path))
-            .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
-        if (videos == null || videos.Count == 0)
+        if (files == null || files.Count == 0)
         {
+            _log.LogWarning("TorrServer: file_stats не получены для {Name} ({Hash}), .strm не создан", t.DisplayName, t.Hash);
+            return 0;
+        }
+
+        var videos = files.Where(f => IsVideo(f.Path))
+            .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        if (videos.Count == 0)
+        {
+            _log.LogWarning("TorrServer: в {Name} ({Hash}) нет поддерживаемых видеофайлов; получено файлов: {Count}", t.DisplayName, t.Hash, files.Count);
             return 0;
         }
 
