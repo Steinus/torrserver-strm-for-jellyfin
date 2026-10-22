@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>TorrServer</title>
+</head>
+<body>
+<div id="TorrServerLibraryPage" data-role="page" class="page libraryPage type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+    <style>
+        #TorrServerLibraryPage .ts-wrap { padding: 1em 3% 5em; }
+        #TorrServerLibraryPage .ts-bar { display: flex; gap: .8em; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.5em; }
+        #TorrServerLibraryPage .ts-bar .inputContainer { flex: 1 1 320px; margin: 0; }
+        #TorrServerLibraryPage .ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1.4em; }
+        #TorrServerLibraryPage .ts-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 6px; background: #222; display: block; }
+        #TorrServerLibraryPage .ts-title { margin: .4em 0 .1em; font-size: .95em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        #TorrServerLibraryPage .ts-size { opacity: .6; font-size: .8em; margin-bottom: .4em; }
+        #TorrServerLibraryPage .ts-actions { display: flex; flex-wrap: wrap; gap: .3em; }
+        #TorrServerLibraryPage .ts-actions button { margin: 0; padding: .4em .7em; font-size: .85em; }
+        #tsOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); z-index: 99999; flex-direction: column; padding: 1em; }
+        #tsOverlay video { flex: 1; min-height: 0; width: 100%; background: #000; }
+        #tsOverlay .ts-ov-top { display: flex; gap: 1em; align-items: center; color: #fff; margin-bottom: .6em; }
+        #tsOverlay .ts-ov-top select { flex: 1; max-width: 700px; }
+    </style>
+    <div data-role="content">
+        <div class="ts-wrap">
+            <h2>TorrServer</h2>
+            <div class="ts-bar ts-admin" style="display:none">
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="tsMagnet" label="Magnet-ссылка или URL .torrent" />
+                </div>
+                <button is="emby-button" type="button" id="tsAddBtn" class="raised button-submit"><span>Добавить</span></button>
+                <button is="emby-button" type="button" id="tsSyncBtn" class="raised"><span>Синхронизировать</span></button>
+            </div>
+            <div id="tsStatus" style="opacity:.7;margin-bottom:1em"></div>
+            <div id="tsGrid" class="ts-grid"></div>
+        </div>
+    </div>
+
+    <div id="tsOverlay">
+        <div class="ts-ov-top">
+            <strong id="tsOvTitle"></strong>
+            <select id="tsOvFiles"></select>
+            <button is="emby-button" type="button" id="tsOvClose" class="raised"><span>Закрыть</span></button>
+        </div>
+        <video id="tsVideo" controls autoplay></video>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var page = document.querySelector('#TorrServerLibraryPage');
+            var grid = page.querySelector('#tsGrid');
+            var statusEl = page.querySelector('#tsStatus');
+            var overlay = page.querySelector('#tsOverlay');
+            var video = page.querySelector('#tsVideo');
+            var fileSel = page.querySelector('#tsOvFiles');
+            var isAdmin = false;
+            var current = null;
+
+            function notify(m) { try { Dashboard.alert({ message: m }); } catch (e) { alert(m); } }
+            function esc(s) {
+                return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+            function fmtSize(b) {
+                if (!b) { return ''; }
+                var u = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'], i = 0;
+                while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+                return b.toFixed(i > 1 ? 1 : 0) + ' ' + u[i];
+            }
+            function getJson(path) {
+                return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(path), dataType: 'json' });
+            }
+
+            function render(list) {
+                if (!list.length) {
+                    grid.innerHTML = '';
+                    statusEl.textContent = 'В TorrServer пока ничего нет.';
+                    return;
+                }
+                statusEl.textContent = '';
+                grid.innerHTML = list.map(function (t) {
+                    var poster = t.poster
+                        ? '<img class="ts-poster" loading="lazy" src="' + esc(t.poster) + '" onerror="this.removeAttribute(\'src\')">'
+                        : '<img class="ts-poster">';
+                    return '<div class="ts-card" data-hash="' + esc(t.hash) + '" data-title="' + esc(t.title) + '">' +
+                        poster +
+                        '<div class="ts-title" title="' + esc(t.title) + '">' + esc(t.title) + '</div>' +
+                        '<div class="ts-size">' + fmtSize(t.size) + '</div>' +
+                        '<div class="ts-actions">' +
+                        '<button is="emby-button" type="button" class="raised button-submit" data-act="play"><span>Воспроизвести</span></button>' +
+                        '<button is="emby-button" type="button" class="raised" data-act="open"><span>В библиотеке</span></button>' +
+                        (isAdmin ? '<button is="emby-button" type="button" class="raised" data-act="del"><span>Удалить</span></button>' : '') +
+                        '</div></div>';
+                }).join('');
+            }
+
+            function load() {
+                statusEl.textContent = 'Загрузка…';
+                getJson('TorrServer/Torrents').then(render, function () {
+                    grid.innerHTML = '';
+                    statusEl.textContent = 'Не удалось подключиться к TorrServer. Проверьте настройки плагина.';
+                });
+            }
+
+            function showPlayer(hash, title, files) {
+                current = hash;
+                page.querySelector('#tsOvTitle').textContent = title;
+                fileSel.innerHTML = files.map(function (f) {
+                    return '<option value="' + f.id + '">' + esc(f.name) + ' (' + fmtSize(f.length) + ')</option>';
+                }).join('');
+                fileSel.style.display = files.length > 1 ? '' : 'none';
+                overlay.style.display = 'flex';
+                startFile();
+            }
+            function startFile() {
+                video.src = ApiClient.getUrl('TorrServer/Stream/' + current + '/' + fileSel.value,
+                    { ApiKey: ApiClient.accessToken() });
+                video.play();
+            }
+            function closePlayer() {
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+                overlay.style.display = 'none';
+            }
+            fileSel.addEventListener('change', startFile);
+            page.querySelector('#tsOvClose').addEventListener('click', closePlayer);
+
+            grid.addEventListener('click', function (e) {
+                var btn = e.target.closest('button[data-act]');
+                if (!btn) { return; }
+                var card = btn.closest('.ts-card');
+                var hash = card.getAttribute('data-hash');
+                var title = card.getAttribute('data-title');
+                var act = btn.getAttribute('data-act');
+
+                if (act === 'play') {
+                    getJson('TorrServer/Torrents/' + hash).then(function (r) {
+                        if (!r.files || !r.files.length) { notify('В торренте нет видеофайлов (или метаданные ещё не загружены).'); return; }
+                        showPlayer(hash, title, r.files);
+                    }, function () { notify('Ошибка обращения к TorrServer'); });
+                } else if (act === 'open') {
+                    getJson('TorrServer/Resolve/' + hash).then(function (r) {
+                        window.location.hash = '#/details?id=' + r.id + '&serverId=' + ApiClient.serverId();
+                    }, function () {
+                        notify('Этот торрент ещё не проиндексирован Jellyfin. Нажмите «Синхронизировать» и подождите окончания сканирования библиотеки.');
+                    });
+                } else if (act === 'del') {
+                    if (!confirm('Удалить «' + title + '» из TorrServer?')) { return; }
+                    ApiClient.ajax({ type: 'DELETE', url: ApiClient.getUrl('TorrServer/Torrents/' + hash) }).then(function () {
+                        setTimeout(load, 1500);
+                    }, function () { notify('Не удалось удалить'); });
+                }
+            });
+
+            page.querySelector('#tsAddBtn').addEventListener('click', function () {
+                var inp = page.querySelector('#tsMagnet');
+                var link = inp.value.trim();
+                if (!link) { return; }
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('TorrServer/Add'),
+                    data: JSON.stringify({ link: link }),
+                    contentType: 'application/json'
+                }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                    inp.value = '';
+                    load();
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                    notify('Не удалось добавить торрент');
+                });
+            });
+
+            page.querySelector('#tsSyncBtn').addEventListener('click', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('TorrServer/Sync') }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                    notify('Синхронизация завершена, сканирование библиотеки запущено.');
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                    notify('Ошибка синхронизации');
+                });
+            });
+
+            page.addEventListener('pageshow', function () {
+                ApiClient.getCurrentUser().then(function (u) {
+                    isAdmin = !!(u.Policy && u.Policy.IsAdministrator);
+                    page.querySelectorAll('.ts-admin').forEach(function (el) { el.style.display = isAdmin ? '' : 'none'; });
+                    load();
+                });
+            });
+            page.addEventListener('pagehide', closePlayer);
+        })();
+    </script>
+</div>
+</body>
+</html>
