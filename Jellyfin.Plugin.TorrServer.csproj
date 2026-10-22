@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Jellyfin.Plugin.TorrServer</RootNamespace>
+    <AssemblyName>Jellyfin.Plugin.TorrServer</AssemblyName>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="10.10.0">
+      <PrivateAssets>all</PrivateAssets>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Web\config.html" />
+    <EmbeddedResource Include="Web\torrserver.html" />
+  </ItemGroup>
+</Project>
