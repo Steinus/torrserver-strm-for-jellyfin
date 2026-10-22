@@ -81,6 +81,27 @@ public class TorrServerClient
         return JsonSerializer.Deserialize<TsTorrent>(s, Json);
     }
 
+    public async Task<TsTorrent?> GetWithFilesAsync(string hash, CancellationToken ct)
+    {
+        TsTorrent? last = null;
+        for (var attempt = 1; attempt <= 20; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            last = await GetAsync(hash, ct).ConfigureAwait(false);
+            if (last?.Files is { Count: > 0 })
+            {
+                return last;
+            }
+
+            if (attempt < 20)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+            }
+        }
+
+        return last;
+    }
+
     public Task AddAsync(string link, string? title, string? poster, CancellationToken ct)
         => PostAsync(new { action = "add", link, title = title ?? string.Empty, poster = poster ?? string.Empty, save_to_db = true }, ct);
 
