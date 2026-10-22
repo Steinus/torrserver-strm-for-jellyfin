@@ -52,15 +52,53 @@ public class LibrarySync
     public static bool IsVideo(string path)
         => VideoExt.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
+    private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
     private static string Sanitize(string s)
     {
-        foreach (var ch in Path.GetInvalidFileNameChars())
+        // Всегда используем Windows-safe имена, даже если Jellyfin запущен на Linux/NAS.
+        s = Regex.Replace(s, @"[<>:""/\\|?*\x00-\x1F]", " ");
+        s = Regex.Replace(s, @"\s+", " ").Trim().TrimEnd(' ', '.');
+
+        if (s.Length == 0)
         {
-            s = s.Replace(ch, ' ');
+            s = "torrent";
         }
 
-        s = Regex.Replace(s, @"\s+", " ").Trim().TrimEnd('.');
-        return s.Length == 0 ? "torrent" : (s.Length > 150 ? s[..150].Trim() : s);
+        if (ReservedWindowsNames.Contains(s))
+        {
+            s = "_" + s;
+        }
+
+        if (s.Length > 150)
+        {
+            s = s[..150].Trim().TrimEnd(' ', '.');
+        }
+
+        return s.Length == 0 ? "torrent" : s;
+    }
+
+    private static string NextAvailableDirectory(string parent, string name, string? current = null)
+    {
+        var candidate = Path.Combine(parent, name);
+        if (string.Equals(candidate, current, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        for (var n = 2; ; n++)
+        {
+            candidate = Path.Combine(parent, $"{name} ({n})");
+            if (string.Equals(candidate, current, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
     }
 
     public string? FindDir(string hash)
@@ -184,20 +222,29 @@ public class LibrarySync
 
         var changes = 0;
         var isShow = videos.Count > 1;
+        var parent = isShow ? ShowsDir : MoviesDir;
+        var name = Sanitize(t.DisplayName);
         var dir = FindDir(t.Hash!);
+
         if (dir == null)
         {
-            var parent = isShow ? ShowsDir : MoviesDir;
-            var name = Sanitize(t.DisplayName);
-            dir = Path.Combine(parent, name);
-            for (var n = 2; Directory.Exists(dir); n++)
-            {
-                dir = Path.Combine(parent, $"{name} ({n})");
-            }
-
+            dir = NextAvailableDirectory(parent, name);
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, Marker), t.Hash);
             changes++;
+        }
+        else
+        {
+            // Мигрируем ранее созданные Linux/Samba-имена и, если нужно, переносим между Movies/Shows.
+            var desired = NextAvailableDirectory(parent, name, dir);
+            if (!string.Equals(dir, desired, StringComparison.Ordinal))
+            {
+                Directory.CreateDirectory(parent);
+                Directory.Move(dir, desired);
+                _log.LogInformation("TorrServer: переименована папка {Old} -> {New}", dir, desired);
+                dir = desired;
+                changes++;
+            }
         }
 
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
