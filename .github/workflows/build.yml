@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,8 +26,22 @@ jobs:
       - name: Build
         run: dotnet publish Jellyfin.Plugin.TorrServer.csproj -c Release -o out --no-restore
 
-      - name: Upload DLL
+      - name: Upload DLL artifact
         uses: actions/upload-artifact@v4
         with:
           name: Jellyfin.Plugin.TorrServer
           path: out/Jellyfin.Plugin.TorrServer.dll
+
+      - name: Commit built DLL to repository
+        run: |
+          mkdir -p release
+          cp out/Jellyfin.Plugin.TorrServer.dll release/Jellyfin.Plugin.TorrServer.dll
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release/Jellyfin.Plugin.TorrServer.dll
+          if git diff --cached --quiet; then
+            echo "DLL unchanged"
+          else
+            git commit -m "Build Jellyfin.Plugin.TorrServer.dll [skip ci]"
+            git push
+          fi
