@@ -43,5 +43,6 @@ jobs:
             echo "DLL unchanged"
           else
             git commit -m "Build Jellyfin.Plugin.TorrServer.dll [skip ci]"
-            git push
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
