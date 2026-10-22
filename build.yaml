@@ -1,6 +1,6 @@
 name: "TorrServer"
 guid: "b7a1c7d2-4f55-4e0b-9a52-6c1d3e8f2a10"
-version: "1.0.0.0"
+version: "1.0.0.1"
 targetAbi: "10.10.0.0"
 framework: "net8.0"
 overview: "Просмотр торрентов из TorrServer в Jellyfin"
