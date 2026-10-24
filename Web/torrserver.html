@@ -8,18 +8,52 @@
 <div id="TorrServerLibraryPage" data-role="page" class="page libraryPage type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
     <style>
         #TorrServerLibraryPage .ts-wrap { padding: 1em 3% 5em; }
-        #TorrServerLibraryPage .ts-bar { display: flex; gap: .8em; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1.5em; }
-        #TorrServerLibraryPage .ts-bar .inputContainer { flex: 1 1 320px; margin: 0; }
-        #TorrServerLibraryPage .ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1.4em; }
-        #TorrServerLibraryPage .ts-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 6px; background: #222; display: block; }
-        #TorrServerLibraryPage .ts-title { margin: .4em 0 .1em; font-size: .95em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-        #TorrServerLibraryPage .ts-size { opacity: .6; font-size: .8em; margin-bottom: .4em; }
-        #TorrServerLibraryPage .ts-actions { display: flex; flex-wrap: wrap; gap: .3em; }
-        #TorrServerLibraryPage .ts-actions button { margin: 0; padding: .4em .7em; font-size: .85em; }
-        #tsOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); z-index: 99999; flex-direction: column; padding: 1em; }
+
+        /* зелёная панель в стиле TorrServer */
+        #TorrServerLibraryPage .ts-panel { border-radius: 8px; overflow: hidden; background: #7fc8a2; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+        #TorrServerLibraryPage .ts-top { background: #00a572; color: #fff; display: flex; flex-wrap: wrap; align-items: center; gap: .8em; padding: .8em 1.2em; }
+        #TorrServerLibraryPage .ts-add { display: flex; flex: 1 1 360px; gap: .5em; max-width: 820px; }
+        #TorrServerLibraryPage .ts-add input { flex: 1; min-width: 0; background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 4px; padding: .6em .8em; font-size: .95em; outline: none; }
+        #TorrServerLibraryPage .ts-add input::placeholder { color: rgba(255,255,255,.75); }
+        #TorrServerLibraryPage .ts-add input:focus { background: rgba(255,255,255,.28); }
+        #TorrServerLibraryPage .ts-status { padding: 1em 1.2em 0; color: #0b5c3d; }
+        #TorrServerLibraryPage .ts-status:empty { display: none; }
+        #TorrServerLibraryPage .ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 1.1em; padding: 1.1em; }
+
+        /* карточка */
+        #TorrServerLibraryPage .ts-card { display: flex; gap: .9em; padding: .6em; border-radius: 6px; background: #12a56f; color: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); min-height: 190px; }
+        #TorrServerLibraryPage .ts-pbox { flex: 0 0 120px; height: 180px; border-radius: 4px; background: #7cc7a2; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #1d6e4d; }
+        #TorrServerLibraryPage .ts-poster { width: 100%; height: 100%; object-fit: cover; display: block; }
+        #TorrServerLibraryPage .ts-body { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: .2em; }
+        #TorrServerLibraryPage .ts-cap { font-size: .62em; letter-spacing: .09em; text-transform: uppercase; opacity: .6; }
+        #TorrServerLibraryPage .ts-title { font-size: .92em; line-height: 1.35; margin-top: .25em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; word-break: break-word; }
+        #TorrServerLibraryPage .ts-meta { margin-top: auto; display: flex; flex-direction: column; gap: .15em; font-size: .85em; }
+
+        /* кнопки */
+        #TorrServerLibraryPage .ts-btns { flex: 0 0 150px; display: flex; flex-direction: column; gap: .4em; }
+        #TorrServerLibraryPage .ts-btn { display: flex; align-items: center; gap: .6em; width: 100%; padding: .65em .8em; border: 0; border-radius: 3px; background: #0e9363; color: #fff; font: inherit; font-size: .78em; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; text-align: left; }
+        #TorrServerLibraryPage .ts-btn:hover, #TorrServerLibraryPage .ts-btn:focus { background: #0a7a52; outline: none; }
+        #TorrServerLibraryPage .ts-btn svg { flex: 0 0 auto; }
+        #TorrServerLibraryPage .ts-top .ts-btn { width: auto; background: rgba(255,255,255,.2); }
+        #TorrServerLibraryPage .ts-top .ts-btn:hover { background: rgba(255,255,255,.32); }
+
+        @media (max-width: 520px) {
+            #TorrServerLibraryPage .ts-card { flex-wrap: wrap; }
+            #TorrServerLibraryPage .ts-btns { flex: 1 1 100%; flex-direction: row; flex-wrap: wrap; }
+            #TorrServerLibraryPage .ts-btn { width: auto; flex: 1 1 45%; }
+        }
+
+        /* плеер и инфо */
+        #tsOverlay, #tsInfo { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.94); z-index: 99999; flex-direction: column; padding: 1em; color: #fff; }
         #tsOverlay video { flex: 1; min-height: 0; width: 100%; background: #000; }
-        #tsOverlay .ts-ov-top { display: flex; gap: 1em; align-items: center; color: #fff; margin-bottom: .6em; }
+        #tsOverlay .ts-ov-top { display: flex; gap: 1em; align-items: center; margin-bottom: .6em; }
         #tsOverlay .ts-ov-top select { flex: 1; max-width: 700px; }
+        #tsOverlay .ts-btn, #tsInfo .ts-btn { width: auto; }
+        #tsInfo .ts-info-box { margin: auto; width: min(760px, 100%); max-height: 90%; overflow: auto; background: #12a56f; border-radius: 8px; padding: 1.2em; }
+        #tsInfo h3 { margin: 0 0 .6em; font-weight: 500; }
+        #tsInfo .ts-hash { font-family: monospace; font-size: .85em; opacity: .85; word-break: break-all; margin-bottom: .8em; }
+        #tsInfo .ts-file { display: flex; justify-content: space-between; gap: 1em; padding: .35em 0; border-top: 1px solid rgba(255,255,255,.2); font-size: .88em; }
+        #tsInfo .ts-file span:first-child { word-break: break-all; }
     </style>
     <div data-role="content">
         <div class="ts-wrap">
@@ -54,15 +88,18 @@
                     </div>
                 </div>
             </details>
-            <div class="ts-bar ts-admin" style="display:none">
-                <div class="inputContainer">
-                    <input is="emby-input" type="text" id="tsMagnet" label="Magnet-ссылка или URL .torrent" />
+
+            <div class="ts-panel">
+                <div class="ts-top ts-admin" style="display:none">
+                    <div class="ts-add">
+                        <input type="text" id="tsMagnet" placeholder="Magnet-ссылка или URL .torrent" />
+                        <button type="button" class="ts-btn" id="tsAddBtn"><span>Добавить</span></button>
+                        <button type="button" class="ts-btn" id="tsSyncBtn"><span>Синхронизировать</span></button>
+                    </div>
                 </div>
-                <button is="emby-button" type="button" id="tsAddBtn" class="raised button-submit"><span>Добавить</span></button>
-                <button is="emby-button" type="button" id="tsSyncBtn" class="raised"><span>Синхронизировать</span></button>
+                <div class="ts-status" id="tsStatus"></div>
+                <div class="ts-grid" id="tsGrid"></div>
             </div>
-            <div id="tsStatus" style="opacity:.7;margin-bottom:1em"></div>
-            <div id="tsGrid" class="ts-grid"></div>
         </div>
     </div>
 
@@ -70,9 +107,19 @@
         <div class="ts-ov-top">
             <strong id="tsOvTitle"></strong>
             <select id="tsOvFiles"></select>
-            <button is="emby-button" type="button" id="tsOvClose" class="raised"><span>Закрыть</span></button>
+            <button type="button" class="ts-btn" id="tsOvClose"><span>Закрыть</span></button>
         </div>
         <video id="tsVideo" controls autoplay></video>
+    </div>
+
+    <div id="tsInfo">
+        <div class="ts-info-box">
+            <h3 id="tsInfoTitle"></h3>
+            <div class="ts-hash" id="tsInfoHash"></div>
+            <div id="tsInfoFiles"></div>
+            <br />
+            <button type="button" class="ts-btn" id="tsInfoClose"><span>Закрыть</span></button>
+        </div>
     </div>
 
     <script type="text/javascript">
@@ -83,9 +130,18 @@
             var overlay = page.querySelector('#tsOverlay');
             var video = page.querySelector('#tsVideo');
             var fileSel = page.querySelector('#tsOvFiles');
+            var infoBox = page.querySelector('#tsInfo');
             var isAdmin = false;
             var current = null;
             var pluginId = 'b7a1c7d2-4f55-4e0b-9a52-6c1d3e8f2a10';
+
+            var ICON = {
+                play: 'M8 5v14l11-7z',
+                open: 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z',
+                info: 'M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+                del: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
+            };
+            var PH = '<svg viewBox="0 0 24 24" width="44" height="44" fill="currentColor"><path d="M21 5v6.59l-3-3.01-4 4.01-4-4-4 4-3-3.01V5c0-1.1.9-2 2-2h14c1.1 0 2 .9 2 2zm-3 6.42l3 3.01V19c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-6.58l3 2.99 4-4 4 4 4-3.99z"/></svg>';
 
             function notify(m) { try { Dashboard.alert({ message: m }); } catch (e) { alert(m); } }
             function esc(s) {
@@ -101,6 +157,11 @@
             }
             function getJson(path) {
                 return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(path), dataType: 'json' });
+            }
+            function btn(act, label) {
+                return '<button type="button" class="ts-btn" data-act="' + act + '">' +
+                    '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="' + ICON[act] + '"/></svg>' +
+                    '<span>' + label + '</span></button>';
             }
 
             function fillSettings(cfg) {
@@ -140,16 +201,20 @@
                 statusEl.textContent = '';
                 grid.innerHTML = list.map(function (t) {
                     var poster = t.poster
-                        ? '<img class="ts-poster" loading="lazy" src="' + esc(t.poster) + '" onerror="this.removeAttribute(\'src\')">'
-                        : '<img class="ts-poster">';
-                    return '<div class="ts-card" data-hash="' + esc(t.hash) + '" data-title="' + esc(t.title) + '">' +
-                        poster +
+                        ? '<img class="ts-poster" loading="lazy" src="' + esc(t.poster) + '">'
+                        : PH;
+                    return '<div class="ts-card" data-hash="' + esc(t.hash) + '" data-title="' + esc(t.title) + '" data-size="' + (t.size || 0) + '">' +
+                        '<div class="ts-pbox">' + poster + '</div>' +
+                        '<div class="ts-body">' +
+                        '<div class="ts-cap">Название</div>' +
                         '<div class="ts-title" title="' + esc(t.title) + '">' + esc(t.title) + '</div>' +
-                        '<div class="ts-size">' + fmtSize(t.size) + '</div>' +
-                        '<div class="ts-actions">' +
-                        '<button is="emby-button" type="button" class="raised button-submit" data-act="play"><span>Воспроизвести</span></button>' +
-                        '<button is="emby-button" type="button" class="raised" data-act="open"><span>В библиотеке</span></button>' +
-                        (isAdmin ? '<button is="emby-button" type="button" class="raised" data-act="del"><span>Удалить</span></button>' : '') +
+                        '<div class="ts-meta"><span class="ts-cap">Размер</span><span>' + fmtSize(t.size) + '</span></div>' +
+                        '</div>' +
+                        '<div class="ts-btns">' +
+                        btn('play', 'Воспроизвести') +
+                        btn('open', 'В библиотеке') +
+                        btn('info', 'Инфо') +
+                        (isAdmin ? btn('del', 'Удалить') : '') +
                         '</div></div>';
                 }).join('');
             }
@@ -161,6 +226,13 @@
                     statusEl.textContent = 'Не удалось подключиться к TorrServer. Проверьте настройки плагина.';
                 });
             }
+
+            // нет постера / не загрузился -> заглушка
+            grid.addEventListener('error', function (e) {
+                if (e.target && e.target.classList && e.target.classList.contains('ts-poster')) {
+                    e.target.parentNode.innerHTML = PH;
+                }
+            }, true);
 
             function showPlayer(hash, title, files) {
                 current = hash;
@@ -186,18 +258,35 @@
             fileSel.addEventListener('change', startFile);
             page.querySelector('#tsOvClose').addEventListener('click', closePlayer);
 
+            function showInfo(hash, title, size, files) {
+                page.querySelector('#tsInfoTitle').textContent = title;
+                page.querySelector('#tsInfoHash').textContent = 'Hash: ' + hash + (size ? '  ·  ' + fmtSize(size) : '');
+                page.querySelector('#tsInfoFiles').innerHTML = files.length
+                    ? files.map(function (f) {
+                        return '<div class="ts-file"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.length) + '</span></div>';
+                    }).join('')
+                    : '<div class="ts-file"><span>Видеофайлы не найдены (метаданные ещё не загружены)</span></div>';
+                infoBox.style.display = 'flex';
+            }
+            page.querySelector('#tsInfoClose').addEventListener('click', function () { infoBox.style.display = 'none'; });
+
             grid.addEventListener('click', function (e) {
-                var btn = e.target.closest('button[data-act]');
-                if (!btn) { return; }
-                var card = btn.closest('.ts-card');
+                var b = e.target.closest('button[data-act]');
+                if (!b) { return; }
+                var card = b.closest('.ts-card');
                 var hash = card.getAttribute('data-hash');
                 var title = card.getAttribute('data-title');
-                var act = btn.getAttribute('data-act');
+                var size = parseInt(card.getAttribute('data-size') || '0', 10);
+                var act = b.getAttribute('data-act');
 
                 if (act === 'play') {
                     getJson('TorrServer/Torrents/' + hash).then(function (r) {
                         if (!r.files || !r.files.length) { notify('В торренте нет видеофайлов (или метаданные ещё не загружены).'); return; }
                         showPlayer(hash, title, r.files);
+                    }, function () { notify('Ошибка обращения к TorrServer'); });
+                } else if (act === 'info') {
+                    getJson('TorrServer/Torrents/' + hash).then(function (r) {
+                        showInfo(hash, title, size, r.files || []);
                     }, function () { notify('Ошибка обращения к TorrServer'); });
                 } else if (act === 'open') {
                     getJson('TorrServer/Resolve/' + hash).then(function (r) {
@@ -280,7 +369,7 @@
                     load();
                 });
             });
-            page.addEventListener('pagehide', closePlayer);
+            page.addEventListener('pagehide', function () { closePlayer(); infoBox.style.display = 'none'; });
         })();
     </script>
 </div>
