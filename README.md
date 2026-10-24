@@ -26,3 +26,20 @@
 (карточка в Jellyfin с метаданными, транскодингом и воспроизведением на любых клиентах).
 
 > CI builds `Jellyfin.Plugin.TorrServer.dll` with GitHub Actions.
+
+
+## Установка и обновления через репозиторий Jellyfin
+
+Добавьте пользовательский репозиторий в Jellyfin:
+
+`Панель управления -> Плагины -> Управление репозиториями -> +`
+
+**Название:** `TorrServer to STRM`
+
+**URL:**
+
+`https://raw.githubusercontent.com/Steinus/torrserver-strm-for-jellyfin/main/manifest.json`
+
+После этого плагин можно устанавливать и обновлять через каталог Jellyfin. Релизы, ZIP-пакет, контрольная сумма и manifest.json публикуются автоматически GitHub Actions.
+
+![TorrServer to STRM](poster.svg)
