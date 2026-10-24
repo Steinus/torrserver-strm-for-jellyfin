@@ -1,28 +1,47 @@
-name: Build Jellyfin plugin
+name: Build and publish Jellyfin plugin
 
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'manifest.json'
+      - 'release/**'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: jellyfin-plugin-build-main
+  group: jellyfin-plugin-release-main
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Read version
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's:.*<AssemblyVersion>\(.*\)</AssemblyVersion>.*:\1:p' Jellyfin.Plugin.TorrServer.csproj | head -n1)
+          TARGET_ABI=$(sed -n 's/^targetAbi: *"\(.*\)"/\1/p' build.yaml | head -n1)
+          if [ -z "$VERSION" ] || [ -z "$TARGET_ABI" ]; then
+            echo "Cannot read version or targetAbi"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "target_abi=$TARGET_ABI" >> "$GITHUB_OUTPUT"
+          echo "zip=Jellyfin.Plugin.TorrServer_$VERSION.zip" >> "$GITHUB_OUTPUT"
 
       - name: Restore
         run: dotnet restore Jellyfin.Plugin.TorrServer.csproj
@@ -30,23 +49,112 @@ jobs:
       - name: Build
         run: dotnet publish Jellyfin.Plugin.TorrServer.csproj -c Release -o out --no-restore
 
-      - name: Upload DLL artifact
+      - name: Package ZIP
+        shell: bash
+        run: |
+          mkdir -p package release
+          cp out/Jellyfin.Plugin.TorrServer.dll package/
+          cp out/Jellyfin.Plugin.TorrServer.dll release/
+          cd package
+          zip -9 "../${{ steps.meta.outputs.zip }}" Jellyfin.Plugin.TorrServer.dll
+          cd ..
+          MD5=$(md5sum "${{ steps.meta.outputs.zip }}" | awk '{print $1}')
+          echo "$MD5" > release/checksum.md5
+          echo "MD5=$MD5" >> "$GITHUB_ENV"
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Jellyfin.Plugin.TorrServer
-          path: out/Jellyfin.Plugin.TorrServer.dll
+          name: TorrServer-to-STRM-${{ steps.meta.outputs.version }}
+          path: |
+            out/Jellyfin.Plugin.TorrServer.dll
+            ${{ steps.meta.outputs.zip }}
 
-      - name: Commit built DLL to repository
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip }}
+        shell: bash
         run: |
-          mkdir -p release
-          cp out/Jellyfin.Plugin.TorrServer.dll release/Jellyfin.Plugin.TorrServer.dll
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP_NAME" --clobber
+          else
+            gh release create "$TAG" "$ZIP_NAME" \
+              --title "TorrServer to STRM $VERSION" \
+              --notes "Jellyfin plugin TorrServer to STRM — version $VERSION."
+          fi
+
+      - name: Generate Jellyfin manifest
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TARGET_ABI: ${{ steps.meta.outputs.target_abi }}
+          ZIP_NAME: ${{ steps.meta.outputs.zip }}
+          MD5: ${{ env.MD5 }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          p = Path("manifest.json")
+          try:
+              data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+          except Exception:
+              data = []
+
+          version = os.environ["VERSION"]
+          target_abi = os.environ["TARGET_ABI"]
+          zip_name = os.environ["ZIP_NAME"]
+          checksum = os.environ["MD5"]
+          owner = "Steinus"
+          repo = "torrserver-strm-for-jellyfin"
+
+          entry = {
+              "category": "General",
+              "guid": "b7a1c7d2-4f55-4e0b-9a52-6c1d3e8f2a10",
+              "name": "TorrServer to STRM",
+              "description": "Интеграция TorrServer с Jellyfin: создание STRM-файлов, синхронизация фильмов и сериалов и воспроизведение через TorrServer.",
+              "overview": "TorrServer -> STRM для Jellyfin",
+              "owner": owner,
+              "imageUrl": f"https://raw.githubusercontent.com/{owner}/{repo}/main/poster.svg",
+              "versions": []
+          }
+
+          old_versions = []
+          if isinstance(data, list):
+              for plugin in data:
+                  if isinstance(plugin, dict) and plugin.get("guid") == entry["guid"]:
+                      old_versions = plugin.get("versions", []) or []
+                      break
+
+          new_version = {
+              "version": version,
+              "changelog": f"Автоматическая сборка TorrServer to STRM {version}",
+              "targetAbi": target_abi,
+              "sourceUrl": f"https://github.com/{owner}/{repo}/releases/download/v{version}/{zip_name}",
+              "checksum": checksum,
+              "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          }
+
+          versions = [v for v in old_versions if isinstance(v, dict) and v.get("version") != version]
+          versions.insert(0, new_version)
+          entry["versions"] = versions
+          p.write_text(json.dumps([entry], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Commit manifest and latest DLL
+        shell: bash
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add release/Jellyfin.Plugin.TorrServer.dll
+          git add manifest.json release/Jellyfin.Plugin.TorrServer.dll release/checksum.md5
           if git diff --cached --quiet; then
-            echo "DLL unchanged"
+            echo "Nothing to commit"
           else
-            git commit -m "Build Jellyfin.Plugin.TorrServer.dll [skip ci]"
+            git commit -m "Publish Jellyfin plugin ${{ steps.meta.outputs.version }} [skip ci]"
             git pull --rebase origin main
             git push origin HEAD:main
           fi
