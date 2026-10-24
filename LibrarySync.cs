@@ -59,6 +59,81 @@ public class LibrarySync
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     };
 
+    // ---------- Очистка названий торрентов для Jellyfin ----------
+
+    private static readonly Regex InfoHashRx = new(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
+    private static readonly Regex LeadingTagsRx = new(@"^\s*(?:\[[^\]]*\]\s*)+", RegexOptions.Compiled);
+    private static readonly Regex YearRx = new(@"(?<!\d)(19\d{2}|20\d{2})(?!\d)", RegexOptions.Compiled);
+    private static readonly Regex SeasonRx = new(@"\b(?:S\d{1,2}(?:E\d+)?|сезон\w*|season)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex BracketsRx = new(@"[\(\[][^\)\]]*[\)\]]", RegexOptions.Compiled);
+    private static readonly Regex CyrRx = new(@"[А-Яа-яЁё]", RegexOptions.Compiled);
+    private static readonly Regex LatRx = new(@"[A-Za-z]", RegexOptions.Compiled);
+    private static readonly Regex LetterRx = new(@"[^\W\d_]", RegexOptions.Compiled);
+    private static readonly Regex PartSplitRx = new(@"\s+/\s+|\s+\|\s+", RegexOptions.Compiled);
+
+    private static readonly char[] EdgeChars =
+    {
+        ' ', '\t', '(', ')', '[', ']', '{', '}', '-', '–', '—', '/', '|', '.', ',', ':', ';', '«', '»', '"', '\'', '`'
+    };
+
+    /// <summary>
+    /// "[NUM] Проект «Конец света» Project Hail Mary (IMAX) 2026 ДБ, ... bf313d6e..." -> "Project Hail Mary", year "2026".
+    /// </summary>
+    private static string CleanTitle(string raw, out string? year)
+    {
+        var s = InfoHashRx.Replace(raw, " ");
+        s = LeadingTagsRx.Replace(s, string.Empty); // ведущие [NUM], [RuTracker] ...
+
+        year = null;
+        var head = s;
+        foreach (Match m in YearRx.Matches(s))
+        {
+            // первый год, перед которым есть хотя бы одна буква (чтобы не принять "2001: A Space Odyssey" за год)
+            if (LetterRx.IsMatch(s[..m.Index]))
+            {
+                year = m.Groups[1].Value;
+                head = s[..m.Index];
+                break;
+            }
+        }
+
+        head = SeasonRx.Split(head)[0];                          // обрезать «Сезон 1», S01 ...
+        head = BracketsRx.Replace(head, " ").Trim(EdgeChars);    // (IMAX), [Extended] ...
+
+        var parts = PartSplitRx.Split(head)
+            .Select(p => p.Trim(EdgeChars))
+            .Where(p => p.Length > 0)
+            .ToList();
+        var part = parts.FirstOrDefault(p => LatRx.IsMatch(p)) ?? parts.FirstOrDefault() ?? head;
+
+        // «Проект «Конец света» Project Hail Mary» -> «Project Hail Mary»
+        if (CyrRx.IsMatch(part) && LatRx.IsMatch(part))
+        {
+            var lastCyr = CyrRx.Matches(part).Last();
+            var tail = part[(lastCyr.Index + lastCyr.Length)..].Trim(EdgeChars);
+            if (LatRx.Matches(tail).Count >= 2)
+            {
+                part = tail;
+            }
+        }
+
+        if (!part.Trim().Contains(' '))
+        {
+            part = Regex.Replace(part, @"[._]+", " ");           // Dune.Part.Two -> Dune Part Two
+        }
+
+        var title = Regex.Replace(part, @"\s+", " ").Trim(EdgeChars);
+        return title.Length > 0 ? title : Regex.Replace(raw, @"\s+", " ").Trim();
+    }
+
+    /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)".</summary>
+    private static string BuildName(string raw)
+    {
+        var title = CleanTitle(raw, out var year);
+        var name = year != null ? $"{title} ({year})" : title;
+        return Sanitize(name.Replace(":", " -"));
+    }
+
     private static string Sanitize(string s)
     {
         // Всегда используем Windows-safe имена, даже если Jellyfin запущен на Linux/NAS.
@@ -223,7 +298,7 @@ public class LibrarySync
         var changes = 0;
         var isShow = videos.Count > 1;
         var parent = isShow ? ShowsDir : MoviesDir;
-        var name = Sanitize(t.DisplayName);
+        var name = BuildName(t.DisplayName); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
         var dir = FindDir(t.Hash!);
 
         if (dir == null)
@@ -235,7 +310,7 @@ public class LibrarySync
         }
         else
         {
-            // Мигрируем ранее созданные Linux/Samba-имена и, если нужно, переносим между Movies/Shows.
+            // Мигрируем ранее созданные папки со старыми (длинными) именами и, если нужно, переносим между Movies/Shows.
             var desired = NextAvailableDirectory(parent, name, dir);
             if (!string.Equals(dir, desired, StringComparison.Ordinal))
             {
