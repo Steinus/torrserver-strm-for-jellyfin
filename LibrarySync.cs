@@ -142,27 +142,44 @@ public class LibrarySync
         return title.Length > 0 ? title : Regex.Replace(raw, @"\s+", " ").Trim();
     }
 
-    private static string? FindYear(string text)
+    // Запасной поиск года (в имени раздачи и в именах файлов): берём последний подходящий год,
+    // игнорируя разрешения вроде 1920x1080 ("Blade.Runner.2049.2017.1080p" -> 2017).
+    private static readonly Regex FallbackYearRx = new(@"(?<![\dxXхХ×])(19[2-9]\d|20[0-3]\d)(?![\dxXхХ×])", RegexOptions.Compiled);
+
+    private static string? FindYear(string? text)
     {
-        var s = LeadingTagsRx.Replace(InfoHashRx.Replace(text, " "), string.Empty);
-        foreach (Match m in YearRx.Matches(s))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            if (LetterRx.IsMatch(s[..m.Index]))
+            return null;
+        }
+
+        string? year = null;
+        foreach (Match m in FallbackYearRx.Matches(InfoHashRx.Replace(text, " ")))
+        {
+            if (int.Parse(m.Groups[1].Value) <= DateTime.UtcNow.Year + 1)
             {
-                return m.Groups[1].Value;
+                year = m.Groups[1].Value;
             }
         }
 
-        return null;
+        return year;
     }
 
     /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)" (русское название в приоритете).</summary>
-    private static string BuildName(string raw, string? altRaw = null)
+    private static string BuildName(string raw, IEnumerable<string?> yearSources)
     {
         var title = CleanTitle(raw, out var year);
-        if (year == null && !string.IsNullOrWhiteSpace(altRaw))
+        if (year == null)
         {
-            year = FindYear(altRaw!); // года нет в заголовке - ищем в исходном названии раздачи
+            // года нет в заголовке - ищем в имени раздачи, затем в путях файлов
+            foreach (var src in yearSources)
+            {
+                year = FindYear(src);
+                if (year != null)
+                {
+                    break;
+                }
+            }
         }
 
         var name = year != null ? $"{title} ({year})" : title;
@@ -343,7 +360,9 @@ public class LibrarySync
         }
 
         var parent = isShow ? ShowsDir : MoviesDir;
-        var name = BuildName(t.DisplayName, t.Name); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
+        var name = BuildName(
+            t.DisplayName,
+            new[] { t.Name, videos[0].Path, string.Join(" ", files.Select(f => f.Path)) }); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
         var dir = FindDir(t.Hash!);
 
         if (dir == null)
