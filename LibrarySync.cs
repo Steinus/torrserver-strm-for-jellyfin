@@ -69,6 +69,7 @@ public class LibrarySync
     private static readonly Regex CyrRx = new(@"[А-Яа-яЁё]", RegexOptions.Compiled);
     private static readonly Regex LatRx = new(@"[A-Za-z]", RegexOptions.Compiled);
     private static readonly Regex LetterRx = new(@"[^\W\d_]", RegexOptions.Compiled);
+    private static readonly Regex LatWordRx = new(@"(?<![\p{L}\d])[A-Za-z][A-Za-z0-9'’.\-]*", RegexOptions.Compiled);
     private static readonly Regex PartSplitRx = new(@"\s+/\s+|\s+\|\s+", RegexOptions.Compiled);
 
     private static readonly char[] EdgeChars =
@@ -77,7 +78,7 @@ public class LibrarySync
     };
 
     /// <summary>
-    /// "[NUM] Проект «Конец света» Project Hail Mary (IMAX) 2026 ДБ, ... bf313d6e..." -> "Project Hail Mary", year "2026".
+    /// "[NUM] Проект «Конец света» Project Hail Mary (IMAX) 2026 ДБ, ... bf313d6e..." -> "Проект Конец света", year "2026".
     /// </summary>
     private static string CleanTitle(string raw, out string? year)
     {
@@ -104,18 +105,32 @@ public class LibrarySync
             .Select(p => p.Trim(EdgeChars))
             .Where(p => p.Length > 0)
             .ToList();
-        var part = parts.FirstOrDefault(p => LatRx.IsMatch(p)) ?? parts.FirstOrDefault() ?? head;
+        // Приоритет у русского названия; если его нет - берём оригинальное (латиница).
+        var part = parts.FirstOrDefault(p => CyrRx.IsMatch(p))
+            ?? parts.FirstOrDefault(p => LatRx.IsMatch(p))
+            ?? parts.FirstOrDefault()
+            ?? head;
 
-        // «Проект «Конец света» Project Hail Mary» -> «Project Hail Mary»
-        if (CyrRx.IsMatch(part) && LatRx.IsMatch(part))
+        // «Проект «Конец света» Project Hail Mary» -> «Проект Конец света» (отрезаем латинский хвост/начало)
+        if (CyrRx.IsMatch(part))
         {
-            var lastCyr = CyrRx.Matches(part).Last();
-            var tail = part[(lastCyr.Index + lastCyr.Length)..].Trim(EdgeChars);
-            if (LatRx.Matches(tail).Count >= 2)
+            var ru = part[CyrRx.Match(part).Index..];
+            foreach (Match w in LatWordRx.Matches(ru))
             {
-                part = tail;
+                var v = w.Value.TrimEnd('.', '-');
+                if (v.Length < 2 || Regex.IsMatch(v, @"^[IVX]{1,4}$"))
+                {
+                    continue; // римские цифры вроде "II" и одиночные буквы оставляем
+                }
+
+                ru = ru[..w.Index];
+                break;
             }
+
+            part = ru;
         }
+
+        part = Regex.Replace(part, "[«»“”„\"`]", " "); // кавычки в именах папок мешают сопоставлению
 
         if (!part.Trim().Contains(' '))
         {
@@ -126,7 +141,7 @@ public class LibrarySync
         return title.Length > 0 ? title : Regex.Replace(raw, @"\s+", " ").Trim();
     }
 
-    /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)".</summary>
+    /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)" (русское название в приоритете).</summary>
     private static string BuildName(string raw)
     {
         var title = CleanTitle(raw, out var year);
