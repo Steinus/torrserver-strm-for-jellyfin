@@ -70,6 +70,7 @@ public class LibrarySync
     private static readonly Regex LatRx = new(@"[A-Za-z]", RegexOptions.Compiled);
     private static readonly Regex LetterRx = new(@"[^\W\d_]", RegexOptions.Compiled);
     private static readonly Regex LatWordRx = new(@"(?<![\p{L}\d])[A-Za-z][A-Za-z0-9'’.\-]*", RegexOptions.Compiled);
+    private static readonly Regex EpisodeRx = new(@"[sS]\d{1,2}[eE]\d{1,3}|(?<!\d)\d{1,2}x\d{2,3}(?!\d)|[сС]ери[яи]", RegexOptions.Compiled);
     private static readonly Regex PartSplitRx = new(@"\s+/\s+|\s+\|\s+", RegexOptions.Compiled);
 
     private static readonly char[] EdgeChars =
@@ -141,10 +142,29 @@ public class LibrarySync
         return title.Length > 0 ? title : Regex.Replace(raw, @"\s+", " ").Trim();
     }
 
+    private static string? FindYear(string text)
+    {
+        var s = LeadingTagsRx.Replace(InfoHashRx.Replace(text, " "), string.Empty);
+        foreach (Match m in YearRx.Matches(s))
+        {
+            if (LetterRx.IsMatch(s[..m.Index]))
+            {
+                return m.Groups[1].Value;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)" (русское название в приоритете).</summary>
-    private static string BuildName(string raw)
+    private static string BuildName(string raw, string? altRaw = null)
     {
         var title = CleanTitle(raw, out var year);
+        if (year == null && !string.IsNullOrWhiteSpace(altRaw))
+        {
+            year = FindYear(altRaw!); // года нет в заголовке - ищем в исходном названии раздачи
+        }
+
         var name = year != null ? $"{title} ({year})" : title;
         return Sanitize(name.Replace(":", " -"));
     }
@@ -311,9 +331,19 @@ public class LibrarySync
         }
 
         var changes = 0;
-        var isShow = videos.Count > 1;
+        // Сериал - только если файлов-серий несколько. Иначе это фильм: берём самый большой видеофайл,
+        // остальные (семплы, доп. материалы) игнорируем.
+        var isShow = videos.Count > 1
+            && (videos.Count(v => EpisodeRx.IsMatch(Path.GetFileName(v.Path))) >= 2
+                || SeasonRx.IsMatch(t.DisplayName)
+                || SeasonRx.IsMatch(t.Name ?? string.Empty));
+        if (!isShow && videos.Count > 1)
+        {
+            videos = new List<TsFile> { videos.OrderByDescending(f => f.Length).First() };
+        }
+
         var parent = isShow ? ShowsDir : MoviesDir;
-        var name = BuildName(t.DisplayName); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
+        var name = BuildName(t.DisplayName, t.Name); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
         var dir = FindDir(t.Hash!);
 
         if (dir == null)
