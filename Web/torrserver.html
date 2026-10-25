@@ -107,6 +107,11 @@
                                 <label for="tsInterval">Интервал синхронизации, минут (0 = выключено)</label>
                                 <input type="number" id="tsInterval" min="0" />
                             </div>
+                            <div class="ts-field">
+                                <label for="tsTmdb">TMDB API ключ (необязательно)</label>
+                                <input type="password" id="tsTmdb" autocomplete="off" />
+                                <div class="ts-hint">Нужен для года выхода сериала и названий серий. Бесплатный ключ: themoviedb.org → Настройки → API.</div>
+                            </div>
                             <label class="ts-check">
                                 <input type="checkbox" id="tsAutoScan" />
                                 <span>Сканировать библиотеки после изменений</span>
@@ -202,6 +207,7 @@
                 page.querySelector('#tsPath').value = cfg.LibraryPath || '';
                 page.querySelector('#tsInterval').value = cfg.SyncIntervalMinutes == null ? 30 : cfg.SyncIntervalMinutes;
                 page.querySelector('#tsAutoScan').checked = cfg.AutoScanLibrary !== false;
+                page.querySelector('#tsTmdb').value = cfg.TmdbApiKey || '';
             }
 
             function loadSettings() {
@@ -219,6 +225,7 @@
                     cfg.LibraryPath = page.querySelector('#tsPath').value.trim();
                     cfg.SyncIntervalMinutes = parseInt(page.querySelector('#tsInterval').value || '0', 10);
                     cfg.AutoScanLibrary = page.querySelector('#tsAutoScan').checked;
+                    cfg.TmdbApiKey = page.querySelector('#tsTmdb').value.trim();
                     return ApiClient.updatePluginConfiguration(pluginId, cfg);
                 });
             }
