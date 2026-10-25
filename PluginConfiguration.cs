@@ -19,4 +19,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Запускать сканирование библиотек Jellyfin после изменений.</summary>
     public bool AutoScanLibrary { get; set; } = true;
+
+    /// <summary>
+    /// Ключ TMDB (v3 API key или v4 Bearer-токен). Нужен, чтобы узнать год выхода сериала
+    /// и названия серий. Необязательно.
+    /// </summary>
+    public string TmdbApiKey { get; set; } = string.Empty;
 }

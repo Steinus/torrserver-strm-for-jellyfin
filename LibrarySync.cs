@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
@@ -64,7 +66,13 @@ public class LibrarySync
     private static readonly Regex InfoHashRx = new(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
     private static readonly Regex LeadingTagsRx = new(@"^\s*(?:\[[^\]]*\]\s*)+", RegexOptions.Compiled);
     private static readonly Regex YearRx = new(@"(?<!\d)(19\d{2}|20\d{2})(?!\d)", RegexOptions.Compiled);
-    private static readonly Regex SeasonRx = new(@"\b(?:S\d{1,2}(?:E\d+)?|сезон\w*|season)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SeasonRx = new(@"\b(?:S\d{1,2}(?:E\d+)?|\d{1,2}\s*-?\s*(?:й\s+)?сезон\w*|сезон\w*|season)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex TrailingRangeRx = new(@"\s+\d{1,2}\s*[-–—]\s*$", RegexOptions.Compiled);
+    private static readonly Regex SeEpRx = new(@"(?<![A-Za-z0-9])[sS](\d{1,2})[ ._-]?[eE](\d{1,3})(?!\d)", RegexOptions.Compiled);
+    private static readonly Regex XEpRx = new(@"(?<!\d)(\d{1,2})[xхXХ](\d{2,3})(?!\d)", RegexOptions.Compiled);
+    private static readonly Regex EpOnlyRx = new(@"(?<![A-Za-z0-9])[eE](?:p(?:isode)?)?[ ._-]?(\d{1,3})(?!\d)|(\d{1,3})\s*[-_.]?\s*(?:серия|сер\.?|series)|(?:серия|эпизод)\s*[-_.]?\s*(\d{1,3})", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SeasonTextRx = new(@"(?:сезон|season)\s*[-_.:]?\s*(\d{1,2})|(?<![A-Za-z0-9])[sS](\d{1,2})(?![\dEeXx])|(\d{1,2})\s*-?\s*(?:й\s+)?сезон", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex GenericEpisodeNameRx = new(@"^(?:Episode|Эпизод|Серия)\s*\d+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex BracketsRx = new(@"[\(\[][^\)\]]*[\)\]]", RegexOptions.Compiled);
     private static readonly Regex CyrRx = new(@"[А-Яа-яЁё]", RegexOptions.Compiled);
     private static readonly Regex LatRx = new(@"[A-Za-z]", RegexOptions.Compiled);
@@ -100,6 +108,7 @@ public class LibrarySync
         }
 
         head = SeasonRx.Split(head)[0];                          // обрезать «Сезон 1», S01 ...
+        head = TrailingRangeRx.Replace(head, string.Empty);      // «Ричер 1-3 сезон» -> «Ричер»
         head = BracketsRx.Replace(head, " ").Trim(EdgeChars);    // (IMAX), [Extended] ...
 
         var parts = PartSplitRx.Split(head)
@@ -184,6 +193,255 @@ public class LibrarySync
 
         var name = year != null ? $"{title} ({year})" : title;
         return Sanitize(name.Replace(":", " -"));
+    }
+
+
+    // ---------- Разбор серий / сезонов ----------
+
+    private static string FileNameOf(string path)
+    {
+        var i = path.LastIndexOfAny(new[] { '/', '\\' });
+        return i >= 0 ? path[(i + 1)..] : path;
+    }
+
+    private static string FolderOf(string path)
+    {
+        var i = path.LastIndexOfAny(new[] { '/', '\\' });
+        return i > 0 ? path[..i] : string.Empty;
+    }
+
+    private static int? FirstNumber(Match m)
+    {
+        for (var i = 1; i < m.Groups.Count; i++)
+        {
+            if (m.Groups[i].Success && m.Groups[i].Length > 0)
+            {
+                return int.Parse(m.Groups[i].Value);
+            }
+        }
+
+        return null;
+    }
+
+    private static int? SeasonFromText(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+
+        var m = SeasonTextRx.Match(text);
+        return m.Success ? FirstNumber(m) : null;
+    }
+
+    private static (int Season, int? Episode) ParseEpisode(string path, int defaultSeason)
+    {
+        var name = FileNameOf(path);
+        var m = SeEpRx.Match(name);
+        if (!m.Success)
+        {
+            m = SeEpRx.Match(path);
+        }
+
+        if (!m.Success)
+        {
+            m = XEpRx.Match(name);
+        }
+
+        if (m.Success)
+        {
+            return (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+        }
+
+        var season = SeasonFromText(FolderOf(path)) ?? defaultSeason;
+        var e = EpOnlyRx.Match(name);
+        if (e.Success)
+        {
+            return (season, FirstNumber(e));
+        }
+
+        var lead = Regex.Match(name, @"^\s*(\d{1,3})(?!\d)");
+        return (season, lead.Success ? int.Parse(lead.Groups[1].Value) : null);
+    }
+
+    // ---------- TMDB (год выхода сериала и названия серий) ----------
+
+    private const string TmdbFile = ".tmdb.json";
+
+    private sealed record ShowInfo(int Id, string Name, string? Year);
+
+    private async Task<JsonNode?> TmdbGetAsync(string pathAndQuery, CancellationToken ct)
+    {
+        var key = Plugin.Instance?.Configuration.TmdbApiKey?.Trim();
+        if (string.IsNullOrEmpty(key))
+        {
+            return null;
+        }
+
+        try
+        {
+            var url = "https://api.themoviedb.org/3/" + pathAndQuery;
+            var bearer = key.StartsWith("eyJ", StringComparison.Ordinal);
+            if (!bearer)
+            {
+                url += (pathAndQuery.Contains('?') ? "&" : "?") + "api_key=" + Uri.EscapeDataString(key);
+            }
+
+            using var c = _http.CreateClient();
+            c.Timeout = TimeSpan.FromSeconds(15);
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            if (bearer)
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            }
+
+            using var resp = await c.SendAsync(req, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                _log.LogWarning("TorrServer: TMDB ответил {Code} на {Path}", (int)resp.StatusCode, pathAndQuery);
+                return null;
+            }
+
+            return JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _log.LogWarning("TorrServer: TMDB недоступен: {Message}", e.Message);
+            return null;
+        }
+    }
+
+    private async Task<ShowInfo?> LookupShowAsync(string? existingDir, string query, CancellationToken ct)
+    {
+        if (existingDir != null)
+        {
+            var cache = Path.Combine(existingDir, TmdbFile);
+            if (File.Exists(cache))
+            {
+                try
+                {
+                    var n = JsonNode.Parse(File.ReadAllText(cache));
+                    if (n?["id"] != null)
+                    {
+                        return new ShowInfo((int)n["id"]!, (string?)n["name"] ?? query, (string?)n["year"]);
+                    }
+                }
+                catch (Exception e)
+                {
+                    _log.LogDebug(e, "TorrServer: повреждён кэш {File}", cache);
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.TmdbApiKey))
+        {
+            return null;
+        }
+
+        var res = await TmdbGetAsync("search/tv?language=ru-RU&query=" + Uri.EscapeDataString(query), ct).ConfigureAwait(false);
+        var results = res?["results"]?.AsArray();
+        if (results == null || results.Count == 0)
+        {
+            return null;
+        }
+
+        var pick = results.FirstOrDefault(r =>
+                string.Equals((string?)r?["name"], query, StringComparison.OrdinalIgnoreCase)
+                || string.Equals((string?)r?["original_name"], query, StringComparison.OrdinalIgnoreCase))
+            ?? results[0];
+        if (pick?["id"] == null)
+        {
+            return null;
+        }
+
+        var date = (string?)pick["first_air_date"];
+        var year = !string.IsNullOrEmpty(date) && date.Length >= 4 ? date[..4] : null;
+        var name = (string?)pick["name"];
+        return new ShowInfo((int)pick["id"]!, string.IsNullOrWhiteSpace(name) ? query : name!, year);
+    }
+
+    private static void SaveShowCache(string dir, ShowInfo info)
+    {
+        var f = Path.Combine(dir, TmdbFile);
+        if (!File.Exists(f))
+        {
+            var o = new JsonObject { ["id"] = info.Id, ["name"] = info.Name, ["year"] = info.Year };
+            File.WriteAllText(f, o.ToJsonString());
+        }
+    }
+
+    private async Task<Dictionary<int, string>> GetEpisodeNamesAsync(string dir, int showId, int season, int[] needed, CancellationToken ct)
+    {
+        var map = new Dictionary<int, string>();
+        var file = Path.Combine(dir, $".tmdb-s{season:00}.json");
+        var refresh = true;
+        if (File.Exists(file))
+        {
+            try
+            {
+                if (JsonNode.Parse(File.ReadAllText(file)) is JsonObject cached)
+                {
+                    foreach (var kv in cached)
+                    {
+                        if (int.TryParse(kv.Key, out var ep) && !string.IsNullOrWhiteSpace((string?)kv.Value))
+                        {
+                            map[ep] = (string)kv.Value!;
+                        }
+                    }
+                }
+
+                // обновляем кэш, только если не хватает названий и он старше 12 часов (вышли новые серии)
+                refresh = needed.Any(e => !map.ContainsKey(e))
+                    && (DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalHours > 12;
+            }
+            catch (Exception e)
+            {
+                _log.LogDebug(e, "TorrServer: повреждён кэш {File}", file);
+            }
+        }
+
+        if (!refresh)
+        {
+            return map;
+        }
+
+        var res = await TmdbGetAsync($"tv/{showId}/season/{season}?language=ru-RU", ct).ConfigureAwait(false);
+        var eps = res?["episodes"]?.AsArray();
+        if (eps == null)
+        {
+            return map;
+        }
+
+        map.Clear();
+        foreach (var ep in eps)
+        {
+            var num = (int?)ep?["episode_number"];
+            var nm = ((string?)ep?["name"])?.Trim();
+            if (num != null && !string.IsNullOrWhiteSpace(nm) && !GenericEpisodeNameRx.IsMatch(nm))
+            {
+                map[num.Value] = nm;
+            }
+        }
+
+        var o = new JsonObject();
+        foreach (var kv in map)
+        {
+            o[kv.Key.ToString()] = kv.Value;
+        }
+
+        File.WriteAllText(file, o.ToJsonString());
+        return map;
+    }
+
+    private static bool WriteIfChanged(string path, string content)
+    {
+        if (File.Exists(path) && File.ReadAllText(path).Trim() == content)
+        {
+            return false;
+        }
+
+        File.WriteAllText(path, content);
+        return true;
     }
 
     private static string Sanitize(string s)
@@ -348,6 +606,7 @@ public class LibrarySync
         }
 
         var changes = 0;
+
         // Сериал - только если файлов-серий несколько. Иначе это фильм: берём самый большой видеофайл,
         // остальные (семплы, доп. материалы) игнорируем.
         var isShow = videos.Count > 1
@@ -360,11 +619,28 @@ public class LibrarySync
         }
 
         var parent = isShow ? ShowsDir : MoviesDir;
-        var name = BuildName(
-            t.DisplayName,
-            new[] { t.Name, videos[0].Path, string.Join(" ", files.Select(f => f.Path)) }); // "Project Hail Mary (2026)" вместо сырого заголовка раздачи
-        var dir = FindDir(t.Hash!);
+        var existing = FindDir(t.Hash!);
+        var yearSources = new[] { t.Name, videos[0].Path, string.Join(" ", files.Select(f => f.Path)) };
 
+        string name;
+        string showTitle = string.Empty;
+        ShowInfo? info = null;
+        if (isShow)
+        {
+            // "Ричер (2022)": русское название и год ПЕРВОГО выхода сериала (из TMDB, если указан ключ)
+            var title = CleanTitle(t.DisplayName, out var titleYear);
+            info = await LookupShowAsync(existing, title, ct).ConfigureAwait(false);
+            var shownTitle = info?.Name ?? title;
+            var year = info?.Year ?? titleYear ?? yearSources.Select(FindYear).FirstOrDefault(y => y != null);
+            showTitle = Sanitize(shownTitle.Replace(":", " -"));
+            name = Sanitize((year != null ? $"{shownTitle} ({year})" : shownTitle).Replace(":", " -"));
+        }
+        else
+        {
+            name = BuildName(t.DisplayName, yearSources);
+        }
+
+        var dir = existing;
         if (dir == null)
         {
             dir = NextAvailableDirectory(parent, name);
@@ -374,7 +650,7 @@ public class LibrarySync
         }
         else
         {
-            // Мигрируем ранее созданные папки со старыми (длинными) именами и, если нужно, переносим между Movies/Shows.
+            // Мигрируем ранее созданные папки со старыми именами и, если нужно, переносим между Movies/Shows.
             var desired = NextAvailableDirectory(parent, name, dir);
             if (!string.Equals(dir, desired, StringComparison.Ordinal))
             {
@@ -387,26 +663,91 @@ public class LibrarySync
         }
 
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var v in videos)
-        {
-            var baseName = isShow ? Sanitize(Path.GetFileNameWithoutExtension(v.Path)) : Path.GetFileName(dir);
-            var strm = UniquePath(dir, baseName, ".strm", taken);
-            taken.Add(strm);
 
-            var url = _client.StreamUrl(t.Hash!, v.Id, Path.GetFileName(v.Path), true);
-            if (!File.Exists(strm) || File.ReadAllText(strm).Trim() != url)
+        if (isShow)
+        {
+            if (info != null)
             {
-                File.WriteAllText(strm, url);
+                SaveShowCache(dir, info);
+            }
+
+            var defaultSeason = SeasonFromText(t.DisplayName)
+                ?? SeasonFromText(t.Name)
+                ?? SeasonFromText(FolderOf(videos[0].Path))
+                ?? 1;
+
+            var items = new List<(TsFile File, int Season, int Episode)>();
+            var counters = new Dictionary<int, int>();
+            foreach (var v in videos)
+            {
+                var (season, ep) = ParseEpisode(v.Path, defaultSeason);
+                if (ep == null)
+                {
+                    counters[season] = counters.GetValueOrDefault(season) + 1; // нумерация по порядку файлов
+                    ep = counters[season];
+                }
+
+                items.Add((v, season, ep.Value));
+            }
+
+            var names = new Dictionary<int, Dictionary<int, string>>();
+            if (info != null)
+            {
+                foreach (var g in items.GroupBy(i => i.Season))
+                {
+                    names[g.Key] = await GetEpisodeNamesAsync(dir, info.Id, g.Key, g.Select(i => i.Episode).ToArray(), ct)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            foreach (var it in items.OrderBy(i => i.Season).ThenBy(i => i.Episode))
+            {
+                // Ричер/S04/Ричер-S04E01-[Город братской любви].strm
+                var seasonDir = Path.Combine(dir, $"S{it.Season:00}");
+                Directory.CreateDirectory(seasonDir);
+
+                var baseName = $"{showTitle}-S{it.Season:00}E{it.Episode:00}";
+                if (names.TryGetValue(it.Season, out var map) && map.TryGetValue(it.Episode, out var epName))
+                {
+                    baseName += $"-[{epName.Replace(":", " -")}]";
+                }
+
+                var strm = UniquePath(seasonDir, Sanitize(baseName), ".strm", taken);
+                taken.Add(strm);
+                var url = _client.StreamUrl(t.Hash!, it.File.Id, Path.GetFileName(it.File.Path), true);
+                if (WriteIfChanged(strm, url))
+                {
+                    changes++;
+                }
+            }
+        }
+        else
+        {
+            var v = videos[0];
+            var strm = UniquePath(dir, Path.GetFileName(dir), ".strm", taken);
+            taken.Add(strm);
+            var url = _client.StreamUrl(t.Hash!, v.Id, Path.GetFileName(v.Path), true);
+            if (WriteIfChanged(strm, url))
+            {
                 changes++;
             }
         }
 
-        foreach (var old in Directory.GetFiles(dir, "*.strm"))
+        // удалить устаревшие .strm (в том числе старые плоские файлы сериала) и пустые папки сезонов
+        foreach (var old in Directory.GetFiles(dir, "*.strm", SearchOption.AllDirectories))
         {
             if (!taken.Contains(old))
             {
                 File.Delete(old);
                 changes++;
+            }
+        }
+
+        foreach (var sub in Directory.GetDirectories(dir))
+        {
+            if (!Directory.EnumerateFileSystemEntries(sub).Any())
+            {
+                Directory.Delete(sub);
             }
         }
 
