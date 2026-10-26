@@ -13,9 +13,9 @@
         #TorrServerLibraryPage .ts-panel { border-radius: 8px; overflow: hidden; background: #7fc8a2; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
         #TorrServerLibraryPage .ts-top { background: #00a572; color: #fff; display: flex; flex-wrap: wrap; align-items: center; gap: .8em; padding: .8em 1.2em; }
         #TorrServerLibraryPage .ts-add { display: flex; flex: 1 1 360px; gap: .5em; max-width: 820px; }
-        #TorrServerLibraryPage .ts-add input { flex: 1; min-width: 0; background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 4px; padding: .6em .8em; font-size: .95em; outline: none; }
-        #TorrServerLibraryPage .ts-add input::placeholder { color: rgba(255,255,255,.75); }
-        #TorrServerLibraryPage .ts-add input:focus { background: rgba(255,255,255,.28); }
+        #TorrServerLibraryPage .ts-add input { flex: 1; min-width: 0; background: rgba(255,255,255,.34); color: #fff; border: 0; border-radius: 4px; padding: .6em .8em; font-size: .95em; outline: none; }
+        #TorrServerLibraryPage .ts-add input::placeholder { color: rgba(255,255,255,.92); }
+        #TorrServerLibraryPage .ts-add input:focus { background: rgba(255,255,255,.44); }
         #TorrServerLibraryPage .ts-status { padding: 1em 1.2em 0; color: #0b5c3d; }
         #TorrServerLibraryPage .ts-status:empty { display: none; }
         #TorrServerLibraryPage .ts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 1.1em; padding: 1.1em; }
@@ -47,8 +47,8 @@
         #TorrServerLibraryPage .ts-field label { display: block; font-size: .85em; margin-bottom: .3em; opacity: .9; }
         #TorrServerLibraryPage .ts-field input[type=text],
         #TorrServerLibraryPage .ts-field input[type=password],
-        #TorrServerLibraryPage .ts-field input[type=number] { width: 100%; box-sizing: border-box; background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 4px; padding: .65em .8em; font-size: .95em; outline: none; }
-        #TorrServerLibraryPage .ts-field input:focus { background: rgba(255,255,255,.28); }
+        #TorrServerLibraryPage .ts-field input[type=number] { width: 100%; box-sizing: border-box; background: rgba(255,255,255,.34); color: #fff; border: 0; border-radius: 4px; padding: .65em .8em; font-size: .95em; outline: none; }
+        #TorrServerLibraryPage .ts-field input:focus { background: rgba(255,255,255,.44); }
         #TorrServerLibraryPage .ts-hint { font-size: .78em; opacity: .8; margin-top: .3em; }
         #TorrServerLibraryPage .ts-check { display: flex; align-items: center; font-size: .92em; margin: .2em 0 1em; cursor: pointer; }
         #TorrServerLibraryPage .ts-check input { margin: 0 .6em 0 0; width: 18px; height: 18px; accent-color: #0b7a52; }
@@ -265,7 +265,6 @@
                 });
             }
 
-            // нет постера / не загрузился -> заглушка
             grid.addEventListener('error', function (e) {
                 if (e.target && e.target.classList && e.target.classList.contains('ts-poster')) {
                     e.target.parentNode.innerHTML = PH;
