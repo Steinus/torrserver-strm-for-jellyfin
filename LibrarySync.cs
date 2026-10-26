@@ -92,13 +92,12 @@ public class LibrarySync
     private static string CleanTitle(string raw, out string? year)
     {
         var s = InfoHashRx.Replace(raw, " ");
-        s = LeadingTagsRx.Replace(s, string.Empty); // ведущие [NUM], [RuTracker] ...
+        s = LeadingTagsRx.Replace(s, string.Empty);
 
         year = null;
         var head = s;
         foreach (Match m in YearRx.Matches(s))
         {
-            // первый год, перед которым есть хотя бы одна буква (чтобы не принять "2001: A Space Odyssey" за год)
             if (LetterRx.IsMatch(s[..m.Index]))
             {
                 year = m.Groups[1].Value;
@@ -107,21 +106,19 @@ public class LibrarySync
             }
         }
 
-        head = SeasonRx.Split(head)[0];                          // обрезать «Сезон 1», S01 ...
-        head = TrailingRangeRx.Replace(head, string.Empty);      // «Ричер 1-3 сезон» -> «Ричер»
-        head = BracketsRx.Replace(head, " ").Trim(EdgeChars);    // (IMAX), [Extended] ...
+        head = SeasonRx.Split(head)[0];
+        head = TrailingRangeRx.Replace(head, string.Empty);
+        head = BracketsRx.Replace(head, " ").Trim(EdgeChars);
 
         var parts = PartSplitRx.Split(head)
             .Select(p => p.Trim(EdgeChars))
             .Where(p => p.Length > 0)
             .ToList();
-        // Приоритет у русского названия; если его нет - берём оригинальное (латиница).
         var part = parts.FirstOrDefault(p => CyrRx.IsMatch(p))
             ?? parts.FirstOrDefault(p => LatRx.IsMatch(p))
             ?? parts.FirstOrDefault()
             ?? head;
 
-        // «Проект «Конец света» Project Hail Mary» -> «Проект Конец света» (отрезаем латинский хвост/начало)
         if (CyrRx.IsMatch(part))
         {
             var ru = part[CyrRx.Match(part).Index..];
@@ -130,7 +127,7 @@ public class LibrarySync
                 var v = w.Value.TrimEnd('.', '-');
                 if (v.Length < 2 || Regex.IsMatch(v, @"^[IVX]{1,4}$"))
                 {
-                    continue; // римские цифры вроде "II" и одиночные буквы оставляем
+                    continue;
                 }
 
                 ru = ru[..w.Index];
@@ -140,19 +137,17 @@ public class LibrarySync
             part = ru;
         }
 
-        part = Regex.Replace(part, "[«»“”„\"`]", " "); // кавычки в именах папок мешают сопоставлению
+        part = Regex.Replace(part, "[«»“”„\"`]", " ");
 
         if (!part.Trim().Contains(' '))
         {
-            part = Regex.Replace(part, @"[._]+", " ");           // Dune.Part.Two -> Dune Part Two
+            part = Regex.Replace(part, @"[._]+", " ");
         }
 
         var title = Regex.Replace(part, @"\s+", " ").Trim(EdgeChars);
         return title.Length > 0 ? title : Regex.Replace(raw, @"\s+", " ").Trim();
     }
 
-    // Запасной поиск года (в имени раздачи и в именах файлов): берём последний подходящий год,
-    // игнорируя разрешения вроде 1920x1080 ("Blade.Runner.2049.2017.1080p" -> 2017).
     private static readonly Regex FallbackYearRx = new(@"(?<![\dxXхХ×])(19[2-9]\d|20[0-3]\d)(?![\dxXхХ×])", RegexOptions.Compiled);
 
     private static string? FindYear(string? text)
@@ -174,13 +169,11 @@ public class LibrarySync
         return year;
     }
 
-    /// <summary>Имя папки в формате, который понимает Jellyfin: "Название (Год)" (русское название в приоритете).</summary>
     private static string BuildName(string raw, IEnumerable<string?> yearSources)
     {
         var title = CleanTitle(raw, out var year);
         if (year == null)
         {
-            // года нет в заголовке - ищем в имени раздачи, затем в путях файлов
             foreach (var src in yearSources)
             {
                 year = FindYear(src);
@@ -194,7 +187,6 @@ public class LibrarySync
         var name = year != null ? $"{title} ({year})" : title;
         return Sanitize(name.Replace(":", " -"));
     }
-
 
     // ---------- Разбор серий / сезонов ----------
 
@@ -390,7 +382,6 @@ public class LibrarySync
                     }
                 }
 
-                // обновляем кэш, только если не хватает названий и он старше 12 часов (вышли новые серии)
                 refresh = needed.Any(e => !map.ContainsKey(e))
                     && (DateTime.UtcNow - File.GetLastWriteTimeUtc(file)).TotalHours > 12;
             }
@@ -446,7 +437,6 @@ public class LibrarySync
 
     private static string Sanitize(string s)
     {
-        // Всегда используем Windows-safe имена, даже если Jellyfin запущен на Linux/NAS.
         s = Regex.Replace(s, @"[<>:""/\\|?*\x00-\x1F]", " ");
         s = Regex.Replace(s, @"\s+", " ").Trim().TrimEnd(' ', '.');
 
@@ -523,7 +513,7 @@ public class LibrarySync
     {
         if (!await _lock.WaitAsync(0, ct).ConfigureAwait(false))
         {
-            return; // синхронизация уже идёт
+            return;
         }
 
         try
@@ -556,7 +546,6 @@ public class LibrarySync
                 }
             }
 
-            // удалить то, чего больше нет в TorrServer
             foreach (var parent in new[] { MoviesDir, ShowsDir })
             {
                 foreach (var dir in Directory.GetDirectories(parent))
@@ -607,8 +596,6 @@ public class LibrarySync
 
         var changes = 0;
 
-        // Сериал - только если файлов-серий несколько. Иначе это фильм: берём самый большой видеофайл,
-        // остальные (семплы, доп. материалы) игнорируем.
         var isShow = videos.Count > 1
             && (videos.Count(v => EpisodeRx.IsMatch(Path.GetFileName(v.Path))) >= 2
                 || SeasonRx.IsMatch(t.DisplayName)
@@ -627,7 +614,6 @@ public class LibrarySync
         ShowInfo? info = null;
         if (isShow)
         {
-            // "Ричер (2022)": русское название и год ПЕРВОГО выхода сериала (из TMDB, если указан ключ)
             var title = CleanTitle(t.DisplayName, out var titleYear);
             info = await LookupShowAsync(existing, title, ct).ConfigureAwait(false);
             var shownTitle = info?.Name ?? title;
@@ -650,7 +636,6 @@ public class LibrarySync
         }
         else
         {
-            // Мигрируем ранее созданные папки со старыми именами и, если нужно, переносим между Movies/Shows.
             var desired = NextAvailableDirectory(parent, name, dir);
             if (!string.Equals(dir, desired, StringComparison.Ordinal))
             {
@@ -683,7 +668,7 @@ public class LibrarySync
                 var (season, ep) = ParseEpisode(v.Path, defaultSeason);
                 if (ep == null)
                 {
-                    counters[season] = counters.GetValueOrDefault(season) + 1; // нумерация по порядку файлов
+                    counters[season] = counters.GetValueOrDefault(season) + 1;
                     ep = counters[season];
                 }
 
@@ -702,14 +687,19 @@ public class LibrarySync
 
             foreach (var it in items.OrderBy(i => i.Season).ThenBy(i => i.Episode))
             {
-                // Ричер/S04/Ричер-S04E01-[Город братской любви].strm
-                var seasonDir = Path.Combine(dir, $"S{it.Season:00}");
+                // Jellyfin распознаёт стандартную папку сезона "Season 01".
+                var seasonDir = Path.Combine(dir, $"Season {it.Season:00}");
                 Directory.CreateDirectory(seasonDir);
 
-                var baseName = $"{showTitle}-S{it.Season:00}E{it.Episode:00}";
+                // Формат: Название - S01E01 - Название серии.strm
+                var baseName = $"{showTitle} - S{it.Season:00}E{it.Episode:00}";
                 if (names.TryGetValue(it.Season, out var map) && map.TryGetValue(it.Episode, out var epName))
                 {
-                    baseName += $"-[{epName.Replace(":", " -")}]";
+                    var cleanEpisodeName = Sanitize(epName.Replace("[", " ").Replace("]", " ").Replace(":", " -"));
+                    if (!string.IsNullOrWhiteSpace(cleanEpisodeName))
+                    {
+                        baseName += $" - {cleanEpisodeName}";
+                    }
                 }
 
                 var strm = UniquePath(seasonDir, Sanitize(baseName), ".strm", taken);
@@ -733,7 +723,7 @@ public class LibrarySync
             }
         }
 
-        // удалить устаревшие .strm (в том числе старые плоские файлы сериала) и пустые папки сезонов
+        // Старые S01/S02 и старые имена серий удалятся после создания новых файлов.
         foreach (var old in Directory.GetFiles(dir, "*.strm", SearchOption.AllDirectories))
         {
             if (!taken.Contains(old))
