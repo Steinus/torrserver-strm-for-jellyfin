@@ -86,6 +86,18 @@ jobs:
               --notes "Jellyfin plugin TorrServer to STRM — version $VERSION."
           fi
 
+      - name: Sync latest main before publish commit
+        shell: bash
+        run: |
+          mkdir -p /tmp/torrserver-publish
+          cp out/Jellyfin.Plugin.TorrServer.dll /tmp/torrserver-publish/
+          cp release/checksum.md5 /tmp/torrserver-publish/
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p release
+          cp /tmp/torrserver-publish/Jellyfin.Plugin.TorrServer.dll release/
+          cp /tmp/torrserver-publish/checksum.md5 release/
+
       - name: Generate Jellyfin manifest
         env:
           VERSION: ${{ steps.meta.outputs.version }}
@@ -155,6 +167,5 @@ jobs:
             echo "Nothing to commit"
           else
             git commit -m "Publish Jellyfin plugin ${{ steps.meta.outputs.version }} [skip ci]"
-            git pull --rebase origin main
             git push origin HEAD:main
           fi
