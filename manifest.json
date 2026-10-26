@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/Steinus/torrserver-strm-for-jellyfin/main/poster.svg",
     "versions": [
       {
+        "version": "1.0.0.11",
+        "changelog": "Автоматическая сборка TorrServer to STRM 1.0.0.11",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://github.com/Steinus/torrserver-strm-for-jellyfin/releases/download/v1.0.0.11/Jellyfin.Plugin.TorrServer_1.0.0.11.zip",
+        "checksum": "d77f34379ee214723f1f60003afab30f",
+        "timestamp": "2026-10-26T17:33:50Z"
+      },
+      {
         "version": "1.0.0.10",
         "changelog": "Автоматическая сборка TorrServer to STRM 1.0.0.10",
         "targetAbi": "10.10.0.0",
